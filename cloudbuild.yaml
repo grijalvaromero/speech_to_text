@@ -13,7 +13,7 @@ steps:
       '--platform=managed',
       '--allow-unauthenticated',
       '--timeout=600',
-      '--memory=8Gi' 
+      '--memory=4Gi' 
     ]
 
 options:
