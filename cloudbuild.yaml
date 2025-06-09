@@ -12,7 +12,8 @@ steps:
       '--region=us-central1',
       '--platform=managed',
       '--allow-unauthenticated',
-      '--timeout=600' 
+      '--timeout=600',
+      '--memory=8Gi' 
     ]
 
 options:
