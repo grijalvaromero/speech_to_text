@@ -1,6 +1,6 @@
 # Usa imagen oficial de Python
 FROM python:3.11
-
+#pip freeze | sed '/@ file:/d' > requirements.txt
 # Establece el directorio de trabajo
 WORKDIR /app
 
