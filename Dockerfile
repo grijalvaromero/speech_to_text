@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Copia los archivos
 COPY . /app
-
+COPY ./models /app/models
 # Instala git y otras dependencias necesarias
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
