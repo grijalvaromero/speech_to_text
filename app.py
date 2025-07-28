@@ -9,13 +9,30 @@ import math
 import pandas as pd
 import shap
 import os
-CORS(app, origins=["http://localhost:3000",'https://tfm.grijalvaromero.dev'])
-df_avg = pd.read_csv("./data/prices_avg_mt2.csv")
+import requests
+import io
 
-# ——————————————————————
-# Cargar modelo al iniciar la app
-# ——————————————————————
-artefacto = joblib.load('./models/simple.pkl')
+CORS(app, origins=["http://localhost:3000",'https://tfm.grijalvaromero.dev'])
+REMOTE_BASE_URL = "https://tfm.grijalvaromero.dev/"
+
+# URLs completas para los archivos
+DF_AVG_URL = f"{REMOTE_BASE_URL}models/prices_avg_mt2.csv"
+MODEL_URL = f"{REMOTE_BASE_URL}models/simple.pkl"
+
+#df_avg = pd.read_csv("./data/prices_avg_mt2.csv")
+#artefacto = joblib.load('./models/simple.pkl')
+print(f"Descargando df_avg desde: {DF_AVG_URL}")
+df_avg = pd.read_csv(DF_AVG_URL)
+print("df_avg cargado exitosamente.")
+
+# Descargar y cargar el artefacto (modelo y columnas)
+print(f"Descargando modelo desde: {MODEL_URL}")
+response = requests.get(MODEL_URL)
+
+
+# joblib.load puede leer directamente desde un objeto BytesIO en memoria
+artefacto = joblib.load(io.BytesIO(response.content))
+
 model = artefacto['model']
 expected_columns = artefacto['columns']
 X_train = artefacto['X_train']
