@@ -13,25 +13,50 @@ import requests
 import io
 
 CORS(app, origins=["http://localhost:3000",'https://tfm.grijalvaromero.dev'])
+# Ruta remota base
 REMOTE_BASE_URL = "https://tfm.grijalvaromero.dev/"
 
-# URLs completas para los archivos
+# URLs de los archivos
 DF_AVG_URL = f"{REMOTE_BASE_URL}models/prices_avg_mt2.csv"
 MODEL_URL = f"{REMOTE_BASE_URL}models/simple.pkl"
 
-#df_avg = pd.read_csv("./data/prices_avg_mt2.csv")
-#artefacto = joblib.load('./models/simple.pkl')
-print(f"Descargando df_avg desde: {DF_AVG_URL}")
-df_avg = pd.read_csv(DF_AVG_URL)
-print("df_avg cargado exitosamente.")
+# Rutas locales
+DF_AVG_LOCAL = "./data/prices_avg_mt2.csv"
+MODEL_LOCAL = "./models/simple.pkl"
 
-# Descargar y cargar el artefacto (modelo y columnas)
-print(f"Descargando modelo desde: {MODEL_URL}")
-response = requests.get(MODEL_URL)
+# Crea carpetas si no existen
+os.makedirs(os.path.dirname(DF_AVG_LOCAL), exist_ok=True)
+os.makedirs(os.path.dirname(MODEL_LOCAL), exist_ok=True)
 
+# ----------------------------
+# Cargar CSV (descargar si no existe)
+# ----------------------------
+if not os.path.exists(DF_AVG_LOCAL):
+    print(f"Descargando df_avg desde: {DF_AVG_URL}")
+    df_avg_response = requests.get(DF_AVG_URL)
+    with open(DF_AVG_LOCAL, 'wb') as f:
+        f.write(df_avg_response.content)
+    print("Archivo CSV descargado y guardado.")
+else:
+    print("Archivo CSV ya existe. Cargando localmente.")
 
-# joblib.load puede leer directamente desde un objeto BytesIO en memoria
-artefacto = joblib.load(io.BytesIO(response.content))
+df_avg = pd.read_csv(DF_AVG_LOCAL)
+
+# ----------------------------
+# Cargar modelo (descargar si no existe)
+# ----------------------------
+if not os.path.exists(MODEL_LOCAL):
+    print(f"Descargando modelo desde: {MODEL_URL}")
+    model_response = requests.get(MODEL_URL)
+    with open(MODEL_LOCAL, 'wb') as f:
+        f.write(model_response.content)
+    print("Modelo guardado localmente.")
+else:
+    print("Modelo ya existe. Cargando localmente.")
+
+#artefacto = joblib.load(MODEL_LOCAL)
+df_avg = pd.read_csv('./data/prices_avg_mt2.csv')
+artefacto = joblib.load('./models/simple.pkl')
 
 model = artefacto['model']
 expected_columns = artefacto['columns']

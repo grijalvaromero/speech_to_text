@@ -14,6 +14,12 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt && \
     rm -rf /root/.cache /tmp/*
 
+RUN mkdir -p /app/data /app/models
+
+# Descargar archivos desde tu hosting
+RUN wget -O /app/data/prices_avg_mt2.csv https://tfm.grijalvaromero.dev/models/prices_avg_mt2.csv && \
+    wget -O /app/models/simple.pkl https://tfm.grijalvaromero.dev/models/simple.pkl
+
 
 # Expón el puerto (ajusta si usas otro)
 EXPOSE 8080
