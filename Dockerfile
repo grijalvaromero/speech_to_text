@@ -15,9 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     rm -rf /root/.cache /tmp/*
 
 
-# Descarga el modelo de spaCy (si aún no se instala desde requirements.txt)
-RUN python -m spacy download es_core_news_md
-
 # Expón el puerto (ajusta si usas otro)
 EXPOSE 8080
 
