@@ -1,6 +1,6 @@
 # app.py
 from flask import Flask, request, jsonify
-import joblib
+#import joblib
 import numpy as np
 import traceback
 from flask_cors import CORS
@@ -11,7 +11,8 @@ import shap
 import os
 import requests
 import io
-
+import pickle
+from sklearn.ensemble import GradientBoostingRegressor
 CORS(app, origins=["http://localhost:3000",'https://tfm.grijalvaromero.dev'])
 # Ruta remota base
 REMOTE_BASE_URL = "https://tfm.grijalvaromero.dev/"
@@ -40,7 +41,7 @@ if not os.path.exists(DF_AVG_LOCAL):
 else:
     print("Archivo CSV ya existe. Cargando localmente.")
 
-df_avg = pd.read_csv(DF_AVG_LOCAL)
+#df_avg = pd.read_csv(DF_AVG_LOCAL)
 
 # ----------------------------
 # Cargar modelo (descargar si no existe)
@@ -56,7 +57,10 @@ else:
 
 #artefacto = joblib.load(MODEL_LOCAL)
 df_avg = pd.read_csv('./data/prices_avg_mt2.csv')
-artefacto = joblib.load('./models/simple.pkl')
+#artefacto = pickle.load('./models/simple.pkl')
+artefacto=[]
+with open('./models/simple.pkl', 'rb') as file:
+    artefacto = pickle.load(file)
 
 model = artefacto['model']
 expected_columns = artefacto['columns']
