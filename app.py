@@ -12,6 +12,9 @@ import requests
 import io
 import pickle
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.cluster import KMeans
+from shapely.geometry import MultiPoint
+from sklearn.metrics import silhouette_score
 CORS(app, origins=["http://localhost:3000",'https://tfm.grijalvaromero.dev'])
 # Ruta remota base
 
@@ -55,13 +58,13 @@ def download_model():
         print("Modelo guardado localmente.")
     else:
         print("Modelo ya existe. Cargando localmente.")
-
+#download_model()
 #artefacto = joblib.load(MODEL_LOCAL)
 df_avg = pd.read_csv('./data/prices_avg_mt2.csv')
 #artefacto = pickle.load('./models/simple.pkl')
 artefacto=[]
 try:
-    with open('./models/simple.pkl', 'rb') as file:
+    with open('./models/simple_final.pkl', 'rb') as file:
         artefacto = pickle.load(file)
 except Exception as e:
     print("Error al cargar el modelo:")
@@ -70,9 +73,78 @@ except Exception as e:
 model = artefacto['model']
 expected_columns = artefacto['columns']
 X_train = artefacto['X_train']
+
 @app.route('/')
 def home():
     return "API de predicción de precios de casas"
+
+def best_k(points, max_k=8):
+    """Encuentra el mejor número de clusters usando Silhouette Score"""
+    best_k = 2
+    best_score = -1
+
+    # probar k entre 2 y max_k (o la cantidad de puntos)
+    for k in range(2, min(max_k, len(points)) + 1):
+        kmeans = KMeans(n_clusters=k, random_state=42).fit(points)
+        labels = kmeans.labels_
+        if len(set(labels)) == 1:  # evita silhouette con 1 solo cluster
+            continue
+        score = silhouette_score(points, labels)
+        if score > best_score:
+            best_score = score
+            best_k = k
+    return best_k
+
+@app.route('/clusters', methods=['POST'])
+def cluster_houses():
+    data = request.json  # recibe array [{lat, lng, price}, ...]
+
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    # Convertir a numpy arrays
+    points = np.array([[float(d['lat']), float(d['lng'])] for d in data])
+    prices = np.array([float(d['price']) for d in data])
+
+    # Calcular K óptimo
+    k = best_k(points, max_k=8)
+
+    # Ejecutar KMeans
+    kmeans = KMeans(n_clusters=k, random_state=42).fit(points)
+    labels = kmeans.labels_
+
+    clusters = []
+    for cluster_id in range(k):
+        cluster_points = points[labels == cluster_id]
+        cluster_prices = prices[labels == cluster_id]
+
+        if len(cluster_points) == 0:
+            continue
+
+        # Precio promedio
+        avg_price = float(np.mean(cluster_prices))
+
+        # Polígono envolvente (convex hull) en formato Google Maps (lat/lng)
+        if len(cluster_points) >= 3:
+            hull = MultiPoint(cluster_points).convex_hull
+            if hull.geom_type == "Polygon":
+                # Google Maps espera [{"lat": ..., "lng": ...}, ...]
+                polygon = [{"lat": lat, "lng": lng} for lat, lng in hull.exterior.coords]
+            else:
+                polygon = []
+        else:
+            polygon = [{"lat": lat, "lng": lng} for lat, lng in cluster_points]
+
+        clusters.append({
+            "cluster_id": cluster_id,
+            "avg_price": avg_price,
+            "polygon": polygon
+        })
+
+    return jsonify({
+        "k": k,
+        "clusters": clusters
+    })
 
 def prepareCols(data):
     from datetime import datetime
@@ -200,6 +272,7 @@ def predict():
         }), 400
 
 if __name__ == '__main__':
-    #port = int(os.environ.get("PORT", 8080))
-    port = int(os.environ.get('PORT', 8080))
+    
+    #port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=8080)
+    
