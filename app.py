@@ -12,7 +12,7 @@ import os
 import requests
 import io
 import pickle
-CORS(app, origins=["http://localhost:4200",'https://tfm.grijalvaromero.dev'])
+CORS(app, origins=["http://localhost:4200",'https://transitai.grijalvaromero.dev'])
 from utils import reduce_dims, find_nearest, predict, clean_to_predict
 from db import Database
 from datetime import datetime
