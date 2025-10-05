@@ -1,4 +1,5 @@
 
+
 from flask import Flask, request, jsonify
 import numpy as np
 import traceback
@@ -11,60 +12,36 @@ import os
 import requests
 import io
 import pickle
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.cluster import KMeans
-from shapely.geometry import MultiPoint
-from sklearn.metrics import silhouette_score
-CORS(app, origins=["http://localhost:3000",'https://tfm.grijalvaromero.dev'])
-# Ruta remota base
+CORS(app, origins=["http://localhost:4200",'https://tfm.grijalvaromero.dev'])
+from utils import reduce_dims, find_nearest, predict, clean_to_predict
+from db import Database
+from datetime import datetime
+from gnn_infer import KOIGNNEmbedder
 
-def download_model():
-    REMOTE_BASE_URL = "https://tfm.grijalvaromero.dev/"
+##LOAD DATA
+df = pd.read_csv("./data/prod.csv")
+candidates = df[df['koi_disposition'] == 'CANDIDATE'].copy()
 
-    # URLs de los archivos
-    DF_AVG_URL = f"{REMOTE_BASE_URL}models/prices_avg_mt2.csv"
-    MODEL_URL = f"{REMOTE_BASE_URL}models/simple.pkl"
+#CONFIG DATA
+app.config["UPLOAD_FOLDER"] = "uploads"
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+#app.config["UPLOAD_FOLDER"] = "./uploads"
+db = Database()
+##LOAD MODEL
 
-    # Rutas locales
-    DF_AVG_LOCAL = "./data/prices_avg_mt2.csv"
-    MODEL_LOCAL = "./models/simple.pkl"
-
-    # Crea carpetas si no existen
-    os.makedirs(os.path.dirname(DF_AVG_LOCAL), exist_ok=True)
-    os.makedirs(os.path.dirname(MODEL_LOCAL), exist_ok=True)
-
-    # ----------------------------
-    # Cargar CSV (descargar si no existe)
-    # ----------------------------
-    if not os.path.exists(DF_AVG_LOCAL):
-        print(f"Descargando df_avg desde: {DF_AVG_URL}")
-        df_avg_response = requests.get(DF_AVG_URL)
-        with open(DF_AVG_LOCAL, 'wb') as f:
-            f.write(df_avg_response.content)
-        print("Archivo CSV descargado y guardado.")
-    else:
-        print("Archivo CSV ya existe. Cargando localmente.")
-
-    #df_avg = pd.read_csv(DF_AVG_LOCAL)
-
-    # ----------------------------
-    # Cargar modelo (descargar si no existe)
-    # ----------------------------
-    if not os.path.exists(MODEL_LOCAL):
-        print(f"Descargando modelo desde: {MODEL_URL}")
-        model_response = requests.get(MODEL_URL)
-        with open(MODEL_LOCAL, 'wb') as f:
-            f.write(model_response.content)
-        print("Modelo guardado localmente.")
-    else:
-        print("Modelo ya existe. Cargando localmente.")
-#download_model()
-#artefacto = joblib.load(MODEL_LOCAL)
-df_avg = pd.read_csv('./data/prices_avg_mt2.csv')
-#artefacto = pickle.load('./models/simple.pkl')
+embedder = KOIGNNEmbedder(
+    csv_path="./data/con_nulos.csv",
+    weights_path="./outputs_gnn/model_state.pt",
+    preproc_dir="./outputs_gnn/preproc",
+    hidden_dim=32,
+    dropout=0.3,
+    ang_radius_arcsec=120.0,
+    eph_max_rel_period_diff=0.005,
+    eph_max_epoch_diff_hours=3.0
+)
 artefacto=[]
 try:
-    with open('./models/simple_final.pkl', 'rb') as file:
+    with open('./models/simple.pkl', 'rb') as file:
         artefacto = pickle.load(file)
 except Exception as e:
     print("Error al cargar el modelo:")
@@ -72,207 +49,113 @@ except Exception as e:
     
 model = artefacto['model']
 expected_columns = artefacto['columns']
-X_train = artefacto['X_train']
+#X_train = artefacto['X_train']
 
 @app.route('/')
 def home():
     return "API de predicción de precios de casas"
 
-def best_k(points, max_k=8):
-    """Encuentra el mejor número de clusters usando Silhouette Score"""
-    best_k = 2
-    best_score = -1
 
-    # probar k entre 2 y max_k (o la cantidad de puntos)
-    for k in range(2, min(max_k, len(points)) + 1):
-        kmeans = KMeans(n_clusters=k, random_state=42).fit(points)
-        labels = kmeans.labels_
-        if len(set(labels)) == 1:  # evita silhouette con 1 solo cluster
-            continue
-        score = silhouette_score(points, labels)
-        if score > best_score:
-            best_score = score
-            best_k = k
-    return best_k
 
-@app.route('/clusters', methods=['POST'])
-def cluster_houses():
-    data = request.json  # recibe array [{lat, lng, price}, ...]
-
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-
-    # Convertir a numpy arrays
-    points = np.array([[float(d['lat']), float(d['lng'])] for d in data])
-    prices = np.array([float(d['price']) for d in data])
-
-    # Calcular K óptimo
-    k = best_k(points, max_k=8)
-
-    # Ejecutar KMeans
-    kmeans = KMeans(n_clusters=k, random_state=42).fit(points)
-    labels = kmeans.labels_
-
-    clusters = []
-    for cluster_id in range(k):
-        cluster_points = points[labels == cluster_id]
-        cluster_prices = prices[labels == cluster_id]
-
-        if len(cluster_points) == 0:
-            continue
-
-        # Precio promedio
-        avg_price = float(np.mean(cluster_prices))
-
-        # Polígono envolvente (convex hull) en formato Google Maps (lat/lng)
-        if len(cluster_points) >= 3:
-            hull = MultiPoint(cluster_points).convex_hull
-            if hull.geom_type == "Polygon":
-                # Google Maps espera [{"lat": ..., "lng": ...}, ...]
-                polygon = [{"lat": lat, "lng": lng} for lat, lng in hull.exterior.coords]
-            else:
-                polygon = []
-        else:
-            polygon = [{"lat": lat, "lng": lng} for lat, lng in cluster_points]
-
-        clusters.append({
-            "cluster_id": cluster_id,
-            "avg_price": avg_price,
-            "polygon": polygon
-        })
-
+@app.route('/data')
+def data():
+    data = reduce_dims(df.head(50))
     return jsonify({
-        "k": k,
-        "clusters": clusters
+        "data": data.to_dict(orient='records'),
     })
 
-def prepareCols(data):
-    from datetime import datetime
+@app.route('/nearest')
+def nearest():
+    data = find_nearest(candidates.head(30),df,model, expected_columns,quantity=2)
+    #predicts = predict(model, candidates.head(30),expected_columns)
+    return jsonify({
+        #"data":predicts.to_dict(orient='records')
+        "data":data
+    })
 
-    # Accesos rápidos
-    form = data["formData"]
-    amenities = {a["text"]: a["value"] for a in data["amenitys"]}
-    geo = data.get("geoData", {})
-    features = data.get("features", {}).get("counts", {})
+@app.route("/upload_csv", methods=["POST"])
+def upload_csv():
+    if "file" not in request.files:
+        return jsonify({"error": "No se envió archivo"}), 400
 
-    # Utilidades
-    def safe_div(a, b):
-        return a / b if b != 0 else 0
+    file = request.files["file"]
 
-    build_year = amenities.get("Año construcción", datetime.now().year)
-    area = amenities.get("Área construida (m²)", 1)
-    terrain_area = amenities.get("Área del terreno (m²)", 1)
-    price_per_m2 = safe_div(form.get("price", 0), area)
-    age = datetime.now().year - build_year
-    rooms = amenities.get("Cuartos en total", 0)
-    bathrooms = amenities.get("Baños", 0)
-    rooms_per_bathroom = safe_div(rooms, bathrooms)
+    if file.filename == "":
+        return jsonify({"error": "Nombre de archivo inválido"}), 400
 
-    radius = data.get("features", {}).get("radio", 1)  # en metros
-    area_r = math.pi * (radius**2)
-    id_distrito =  form.get("distrito", {}).get("id", 0)
-    price_temp = df_avg[df_avg['id_distrito'] == id_distrito]['price_per_m2']
-    price_mt2 = 0
-    if not price_temp.empty:
-        price_mt2= price_temp.iloc[0]
+    # Generar nombre con fecha y hora
+    now = datetime.now()
+    timestamp = now.strftime("%Y%m%d_%H%M%S")
+    filename = f"{timestamp}_{file.filename}"
+
+    # Guardar archivo
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+
+    # Insertar registro en la tabla uploads
+    db.insert_upload(filename)
+
+    return jsonify({"message": f"Archivo {filename} guardado y registrado en BD"}), 200
+
+@app.route("/uploads", methods=["GET"])
+def get_uploads():
+    conn = db.connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id, file, created_at, updated_at FROM uploads ORDER BY id DESC")
+    rows = cur.fetchall()
+    conn.close()
+
+    # Convertir filas a lista de diccionarios
+    uploads = [
+        {"id": r[0], "file": r[1], "created_at": r[2], "updated_at": r[3]}
+        for r in rows
+    ]
+
+    return jsonify({
+        "data":uploads
+    }), 200
+
+@app.route("/get_csv/<int:id>", methods=["GET"])
+def get_csv(id):
+    filename = db.get_filename_by_id(id)
+    if not filename:
+        return jsonify({"error": f"Archivo no encontrado: {filename}"}), 404
+
+    # Construir la ruta completa
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Archivo no existe en el servidor"}), 404
+    df_2 = pd.read_csv(filepath)
+    backup = clean_to_predict(df_2)
+  
+    #emb = embedder.embed_row(backup.iloc[0]) 
+
+    embeddings = []
+
+    for i, row in backup.iterrows():
+        emb = embedder.embed_row(row)  # ndarray o tensor
+        emb_list = emb.tolist() if hasattr(emb, 'tolist') else list(emb)
+
+        embeddings.append(emb_list)
+    
+    emb_df = pd.DataFrame(embeddings)
+    # Opcional: renombrar columnas como emb_0, emb_1, ...
+    emb_df.columns = [f"emb_{i}" for i in range(emb_df.shape[1])]    
+    emb_df["kepid"] = df["kepid"]
+    #emb_df["kepoi_name"] = df["kepoi_name"]
+    emb_df["kepler_name"] = df["kepler_name"]
+    emb_df["koi_disposition"] = df["koi_disposition"]
 
 
-    cols = {
-        "floors": amenities.get("Niveles", 0),
-        "rooms": rooms,
-        "bathrooms": bathrooms,
-        "importance": geo.get("importance", 0),
-        "place_rank": geo.get("place_rank", 0),
-        "build_year": build_year,
-
-        "id_distrito": form.get("distrito", {}).get("id", 0),
-        "garages": amenities.get("Garajes exteriores", 0) + amenities.get("Garajes Interiores", 0),
-        "terrain_area": terrain_area,
-        "area": area,
-        "price_per_m2": price_per_m2,
-        "age": age,
-        "rooms_per_bathroom": rooms_per_bathroom,
-
-        "amenity_density": safe_div(features.get("amenity_count", 0), area_r),
-        "leisure_density": safe_div(features.get("leisure_count", 0), area_r),
-        "shop_density": safe_div(features.get("shop_count", 0), area_r),
-        "building_density": safe_div(features.get("building_count", 0), area_r),
-        "road_density": safe_div(features.get("road_count", 0), area_r),
-        
-        "amenity_count": features.get("amenity_count", 0),
-        "zip_code": int(form.get("zip_code", geo.get("zip_code", 0))),
-        "place_type_num": 1 if geo.get("place_type") == "residential" else 0,
-        "lat": form.get("lat", 0),
-        "lng": form.get("lng", 0),
-        "expense": 0  # puedes ajustar este valor si tienes info
-    }
-
-    return cols
-
-@app.route('/predict', methods=['POST'])
-def predict():
+    #print(emb_df.head())
+    
+    res = find_nearest(emb_df, df,model, expected_columns,quantity=2)
+  
+    return jsonify({"data": res}), 200
    
-    try:
-        data = request.get_json()
-        cols = prepareCols(data)
-        #return jsonify({
-        #   'expected_columns':expected_columns,
-        #   'cols':cols   
-        #})
-        # Asegurarnos de que vienen todas las columnas en el orden correcto
-        X_input = [cols.get(col, 0) for col in expected_columns]
-        X_array = np.array([X_input])
-        X_df = pd.DataFrame(X_array, columns=expected_columns)
-        # Predecir en log
-        y_log = model.predict(X_array)
-        # Volver a escala real
-        y_real = np.expm1(y_log)[0]
-        RMSE = 236_459
-        lower = max(y_real - RMSE, 0)
-        upper = y_real + RMSE
-        
-
-        # SHAP
-        explainer = shap.Explainer(model.predict, X_train)
-        shap_values = explainer(X_df)
-
-        # Extraer justificaciones
-        explicaciones = []
-        for name, value, impact in zip(
-            shap_values[0].feature_names,
-            shap_values[0].data,
-            shap_values[0].values
-        ):
-            #if abs(impact) < 1000:
-                #continue
-            explicaciones.append({
-                'feature': name,
-                'valor': value,
-                'impacto': impact,
-                'signo': '+' if impact > 0 else '-',
-                'razon': f"{'Aumenta' if impact > 0 else 'Reduce'} el valor por {name} = {value}"
-            })
-
-
-        top_explicaciones = sorted(explicaciones, key=lambda x: abs(x['impacto']), reverse=True)[:4]
-        return jsonify({
-            'predicted_price': float(y_real),
-            'currency': 'USD',
-            'confidence_range': {
-                'lower': round(lower),
-                'upper': round(upper)
-            },
-            "LOG":y_log[0],
-            'justificacion': top_explicaciones,
-        })
-    except Exception as e:
-        return jsonify({
-            'error': str(e),
-            'trace': traceback.format_exc()
-        }), 400
 
 if __name__ == '__main__':
     
     #port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host='0.0.0.0', port=8001,debug=True)
     

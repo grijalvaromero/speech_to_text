@@ -1,0 +1,55 @@
+{
+  "csv_path_used_to_fit_preproc": "./data/con_nulos.csv",
+  "star_feat_cols": [
+    "ra",
+    "dec",
+    "koi_steff",
+    "koi_slogg",
+    "koi_smet",
+    "koi_srad",
+    "koi_smass",
+    "koi_kepmag",
+    "koi_gmag",
+    "koi_rmag",
+    "koi_imag",
+    "koi_zmag",
+    "koi_jmag",
+    "koi_hmag",
+    "koi_kmag"
+  ],
+  "planet_feat_cols": [
+    "koi_period",
+    "koi_time0",
+    "koi_time0bk",
+    "koi_impact",
+    "koi_duration",
+    "koi_depth",
+    "koi_ror",
+    "koi_srho",
+    "koi_prad",
+    "koi_sma",
+    "koi_incl",
+    "koi_teq",
+    "koi_insol",
+    "koi_dor",
+    "koi_max_sngle_ev",
+    "koi_max_mult_ev",
+    "koi_model_snr",
+    "koi_count",
+    "koi_num_transits",
+    "koi_bin_oedp_sig"
+  ],
+  "thresholds": {
+    "ANGULAR_RADIUS_ARCSEC_NEIGHBOR": 120.0,
+    "EPHEMERIS_MAX_REL_PERIOD_DIFF": 0.005,
+    "EPHEMERIS_MAX_EPOCH_DIFF_HOURS": 3.0
+  },
+  "training": {
+    "epochs": 120,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "patience": 15,
+    "seed": 42,
+    "device": "mps"
+  }
+}
